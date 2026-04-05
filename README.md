@@ -56,3 +56,6 @@ mps-dump.exe .\test-4216.dat | more
 -- More --
 ```
 
+# TODO
+
+- [ ]  Add cli flag for selecting byte order for parsing annotations (e.g., big-endian or little-endian). Currently assumes little-endian
