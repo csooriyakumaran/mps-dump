@@ -2,9 +2,7 @@
 
 A lightweight, [hexdump](https://man7.org/linux/man-pages/man1/hexdump.1.html)-like [CLI](https://github.com/resources/articles/what-is-a-cli) program to dump the contents of an MPS binary data file. 
 
-Leverages the [MPS Protocol](https://github.com/csooriyakumaran/scanivalve-mps-protocol.git) firmware version v4.01. 
-
-See the [Scanivalve Hardware, Software, and User Manual](https://scanivalve.com/wp-content/uploads/2026/03/MPS4200_v401_260304.pdf)
+Leverages the [MPS Protocol](https://github.com/csooriyakumaran/scanivalve-mps-protocol.git) firmware version v4.01 (see the [Scanivalve Hardware, Software, and User Manual](https://scanivalve.com/wp-content/uploads/2026/03/MPS4200_v401_260304.pdf))
 ## Usage
 
 ```powershell
