@@ -9,6 +9,17 @@ project(mps-dump
     LANGUAGES C RC
 )
 
+# Dependencies ---
+include(FetchContent)
+
+FetchContent_Declare(
+    scanivalve-mps-protocol
+    GIT_REPOSITORY https://github.com/csooriyakumaran/scanivalve-mps-protocol.git
+    GIT_TAG 49ce41d
+)
+FetchContent_MakeAvailable(scanivalve-mps-protocol)
+
+
 # Use clang as the C compiler
 if (NOT CMAKE_C_COMPILER)
     set(CMAKE_C_COMPILER clang)
@@ -47,11 +58,6 @@ if (WIN32)
     )
 endif()
 
-# Add external scanivalve-mps-protocol interface library
-add_subdirectory(external/scanivalve-mps-protocol)
-
-
-# Main executable
 add_executable(mps-dump
     src/main.c
 )
