@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "version.h"
+
 #include "scanivalve/mps-protocol.h"
 
 #define WORD_SIZE 4
@@ -70,6 +72,12 @@ void annotate_line(u8 pkt_type, const u32* words, size_t word_count, size_t line
 
 int main(int argc, char** argv)
 {
+    
+    if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0 ))
+    {
+        fprintf(stdout, "%s", MPS_DUMP_VERSION_STRING);
+        return 0;
+    }
 
     const char* path = (argc > 1) ? argv[1] : "test.dat";
     FILE* fp = fopen(path, "rb");
