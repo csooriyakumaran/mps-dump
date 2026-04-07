@@ -36,31 +36,33 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_definitions(
     _CRT_SECURE_NO_WARNINGS
 )
+
+add_executable(mps-dump
+    src/main.c
+)
+
 # Generated files directory
-set(MPS_INFO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-file(MAKE_DIRECTORY ${MPS_INFO_GENERATED_DIR})
+set(MPS_DUMP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY ${MPS_DUMP_GENERATED_DIR})
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
-    ${MPS_INFO_GENERATED_DIR}/version.h
+    ${MPS_DUMP_GENERATED_DIR}/version.h
 )
 
 # Generate and attach Windows Version resource
 if (WIN32)
     configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/resources.rc.in
-        ${MPS_INFO_GENERATED_DIR}/resources.rc
+        ${MPS_DUMP_GENERATED_DIR}/resources.rc
         @ONLY
     )
 
-    target_sources(mps-info PRIVATE
-        ${MPS_INFO_GENERATED_DIR}/resources.rc
+    target_sources(mps-dump PRIVATE
+        ${MPS_DUMP_GENERATED_DIR}/resources.rc
     )
 endif()
 
-add_executable(mps-dump
-    src/main.c
-)
 
 # Link against scanivalve-mps-protocol so its include directories are visible to this target
 target_link_libraries(mps-dump PRIVATE scanivalve-mps-protocol)
