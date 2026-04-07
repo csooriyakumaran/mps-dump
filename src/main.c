@@ -6,6 +6,7 @@
 #include "version.h"
 
 #include "scanivalve/mps-protocol.h"
+#include "scanivalve/mps-protocol-version.h"
 
 #define WORD_SIZE 4
 #define WORDS_PER_LINE 4
@@ -75,7 +76,8 @@ int main(int argc, char** argv)
     
     if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0 ))
     {
-        fprintf(stdout, "%s", MPS_DUMP_VERSION_STRING);
+        fprintf(stdout, "%s\n", MPS_DUMP_VERSION_STRING);
+        fprintf(stdout, "  - Scanivalve Protocol Version %s\n  - Scanivalve Firmware Version %s\n", MPS_PROTOCOL_VERSION_STRING, MPS_FIRMWARE_VERSION_STRING);
         return 0;
     }
 
