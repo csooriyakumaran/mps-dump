@@ -37,9 +37,6 @@ add_compile_definitions(
     _CRT_SECURE_NO_WARNINGS
 )
 
-add_executable(mps-dump
-    src/main.c
-)
 
 # Generated files directory
 set(MPS_DUMP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -48,6 +45,15 @@ file(MAKE_DIRECTORY ${MPS_DUMP_GENERATED_DIR})
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
     ${MPS_DUMP_GENERATED_DIR}/version.h
+)
+
+add_executable(mps-dump
+    src/main.c
+)
+
+# Add generated include dir so version.h can be included
+target_include_directories(mps-dump PRIVATE
+    ${MPS_DUMP_GENERATED_DIR}
 )
 
 # Generate and attach Windows Version resource
