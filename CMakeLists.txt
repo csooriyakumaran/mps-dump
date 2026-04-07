@@ -1,7 +1,13 @@
 cmake_minimum_required(VERSION 3.25)
 
-# Project configuration
-project(mps-dump C)
+# Project configuration ---
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION_STRING)
+string(STRIP "${PROJECT_VERSION_STRING}" PROJECT_VERSION_STRING)
+
+project(mps-dump
+    VERSION ${PROJECT_VERSION_STRING}
+    LANGUAGES C RC
+)
 
 # Use clang as the C compiler
 if (NOT CMAKE_C_COMPILER)
@@ -19,6 +25,28 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_definitions(
     _CRT_SECURE_NO_WARNINGS
 )
+# Generated files directory
+set(MPS_INFO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY ${MPS_INFO_GENERATED_DIR})
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
+    ${MPS_INFO_GENERATED_DIR}/version.h
+)
+
+# Generate and attach Windows Version resource
+if (WIN32)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/resources.rc.in
+        ${MPS_INFO_GENERATED_DIR}/resources.rc
+        @ONLY
+    )
+
+    target_sources(mps-info PRIVATE
+        ${MPS_INFO_GENERATED_DIR}/resources.rc
+    )
+endif()
+
 # Add external scanivalve-mps-protocol interface library
 add_subdirectory(external/scanivalve-mps-protocol)
 
@@ -31,3 +59,4 @@ add_executable(mps-dump
 # Link against scanivalve-mps-protocol so its include directories are visible to this target
 target_link_libraries(mps-dump PRIVATE scanivalve-mps-protocol)
 
+install(TARGETS mps-dump RUNTIME DESTINATION .)
