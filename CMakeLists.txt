@@ -79,4 +79,13 @@ endif()
 # Link against scanivalve-mps-protocol so its include directories are visible to this target
 target_link_libraries(mps-dump PRIVATE scanivalve-mps-protocol)
 
-install(TARGETS mps-dump RUNTIME DESTINATION .)
+install(TARGETS mps-dump
+    RUNTIME DESTINATION bin
+    COMPONENT Runtime
+)
+
+install(FILES README.md LICENSE
+    DESTINATION .
+    COMPONENT Docs
+)
+
