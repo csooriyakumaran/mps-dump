@@ -54,6 +54,21 @@ mps-dump.exe .\test-4216.dat | more
 -- More --
 ```
 
+# BUILD FROM SOURCE
+
+```powershell
+cmake -S . -B build -G "Ninja" -D CMAKE_C_COMPILER=clang -D CMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# install with docs
+cmake --install build --config Release --prefix <path-to-install>
+
+# install only exectuable
+cmake --install build --config Release --prefx <path-to-install> --component Runtime
+# installs <prefix>/bin/mps-dump.exe
+```
+
+
 # TODO
 
 - [ ]  Add cli flag for selecting byte order for parsing annotations (e.g., big-endian or little-endian). Currently assumes little-endian
