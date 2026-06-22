@@ -22,8 +22,17 @@ FetchContent_Declare(
     scanivalve-mps-protocol
     GIT_REPOSITORY https://github.com/csooriyakumaran/scanivalve-mps-protocol.git
     GIT_TAG v0.1.4
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(scanivalve-mps-protocol)
+
+FetchContent_Declare(
+    aether
+    GIT_REPOSITORY https://github.com/csooriyakumaran/aether.git
+    GIT_TAG v0.0.4
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(aether)
 
 
 # Use clang as the C compiler
@@ -77,7 +86,7 @@ endif()
 
 
 # Link against scanivalve-mps-protocol so its include directories are visible to this target
-target_link_libraries(mps-dump PRIVATE scanivalve-mps-protocol)
+target_link_libraries(mps-dump PRIVATE scanivalve-mps-protocol aether::aether)
 
 install(TARGETS mps-dump
     RUNTIME DESTINATION bin
