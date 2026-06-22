@@ -27,7 +27,6 @@ typedef struct Packet
 } Packet;
 
 static char g_hex[256][2];
-
 static void hex_table_init(void)
 {
     static const char digits[] = "0123456789ABCDEF";
