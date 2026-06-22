@@ -8,6 +8,9 @@
 #include "scanivalve/mps-protocol.h"
 #include "scanivalve/mps-protocol-version.h"
 
+#define AETHER_IMPLEMENTATION
+#include "aether/aether.h"
+
 #define WORD_SIZE 4
 #define WORDS_PER_LINE 4
 #define BYTES_PER_LINE (WORD_SIZE * WORDS_PER_LINE)
@@ -16,24 +19,24 @@
 #define BIG_ENDIAN 1
 #define LITTLE_ENDIAN 0
 
-typedef float    f32;
-typedef double   f64;
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-typedef int8_t   i8;
-typedef int16_t  i16;
-typedef int32_t  i32;
-typedef int64_t  i64;
-
 typedef struct Packet
 {
-    u8 type;
-    size_t size;
-    u8 data[MPS_MAX_BINARY_PACKET_SIZE];
+    u8  type;
+    u64 size;
+    u8* data;     /* view into read-only memory */
 } Packet;
 
+static char g_hex[256][2];
+
+static void hex_table_init(void)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    for (int i = 0; i < 256; ++i)
+    {
+        g_hex[i][0] = digits[(i >> 4) & 0xF];
+        g_hex[i][1] = digits[ i & 0xF];
+    }
+}
 
 u32 read_be32(const u8* p)
 {
@@ -58,11 +61,11 @@ f32 bits_to_f32(u32 bits)
     return value;
 }
 
-int read_packet(FILE* fin, Packet* pkt);
-int dump_file(FILE* fin, FILE* fout);
+b8   create_packet_view(str8 bytes, u64 offset, Packet* pkt);
 void dump_packet(const Packet* pkt, size_t* p_offset, FILE* fout);
-void println(size_t offset, const u8* data, size_t size, const char* annotation, FILE* fout);
+void println_buffered(size_t offset, const u8* data, size_t size, const char* annotation, FILE* fout);
 size_t build_words(const u8* data, size_t size_bytes, u32* out_words, size_t max_words, int big_endian);
+
 void append_slot(char* dst, size_t dst_size, const char* field_text, int slot_width);
 void annotate_line_legacy(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size);
 void annotate_line_eu(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size);
@@ -70,109 +73,73 @@ void annotate_line_raw(const u32* words, size_t word_count, size_t line_index, c
 void annotate_line_default(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size);
 void annotate_line(u8 pkt_type, const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size);
 
-
 int main(int argc, char** argv)
 {
-    
+    hex_table_init();
+
+    u64 start = time_mark();
     if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0 ))
     {
         fprintf(stdout, "%s\n", MPS_DUMP_VERSION_STRING);
         fprintf(stdout, "  - Scanivalve Protocol Version %s\n  - Scanivalve Firmware Version %s\n", MPS_PROTOCOL_VERSION_STRING, MPS_FIRMWARE_VERSION_STRING);
+        fprintf(stdout, "  -              Aether Version %s\n", AETHER_VERSION_STRING);
         return 0;
     }
 
     const char* path = (argc > 1) ? argv[1] : "test.dat";
-    FILE* fp = fopen(path, "rb");
 
-    if (!fp)
+    // map the contents of the file into read-only memory
+    str8 bytes = map_file(path);
+
+    if (!bytes.data || bytes.size == 0)
     {
-        fprintf(stderr, "Error opening file `%s`\n", path);
+        fprintf(stderr, "Error mapping to file `%s`\n", path);
         return 1;
     }
 
+    Packet pkt = {0};
     size_t offset = 0;
-    Packet pkt;
 
-    while (read_packet(fp, &pkt))
+    while (create_packet_view(bytes, offset, &pkt))
     {
+        // dump packet and advance offset
         dump_packet(&pkt, &offset, stdout);
     }
 
-    fclose(fp);
+    u64 end = time_mark();
+    f64 elapsed_s = time_elapsed_sec(start, end);
+    printf("--- %.4f ms", elapsed_s*1000.0);
+
+    unmap_file(bytes);
     return 0;
 }
 
-
-int read_packet(FILE* fin, Packet* pkt)
+b8  create_packet_view(str8 bytes, u64 offset, Packet* pkt)
 {
-    int c = fgetc(fin);
-    if (c == EOF) return 0; // no more data
 
-    pkt->type = (u8)c;
+    if (offset >= bytes.size) return false;
+    u8* base = bytes.data + offset;
 
+    pkt->type = base[0];
     const MpsBinaryPacketInfo* info = mps_get_binary_packet_info_by_type(pkt->type);
 
     if (!info)
     {
-        // - unknown type, treat jut this packet as a 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now 1-byte "packet" for now
-        //   todo(chris): likely this is a labview frame, so it should probably default to float annotation
         pkt->size = 1;
-        pkt->data[0] = pkt->type;
-        return 1;
+        pkt->data = base;
+        return true;
     }
 
+    u64 available = bytes.size - offset;
     pkt->size = info->size_bytes;
-    if (pkt->size > sizeof(pkt->data))
+    if (pkt->size > available)
     {
-        // - Should not happen given MPS_MAX_BINARY_PACKET_SIZE, but guard against anyway
-        fprintf(stderr, "Error: Packet too large (%zu bytes)\n", pkt->size);
-        return 0;
+        fprintf(stderr, "Warning: Truncated packet at offset %llu (expected %u, have %llu)\n", (unsigned long long)offset, info->size_bytes, (unsigned long long)available);
+        pkt->size = available;
     }
 
-    // - since we've already consumed the first byte as the type we should store it in the data buffer
-    pkt->data[0] = pkt->type;
-
-    size_t remaining = pkt->size - 1;
-    size_t nread = fread(pkt->data + 1, 1, remaining, fin);
-
-    if (nread != remaining)
-    {
-        fprintf(stderr, "Warning: truncated packet (expected %zu bytes, got %zu)\n", pkt->size, 1 + nread);
-        pkt->size = 1 + nread;
-    }
-
-    return 1;
-}
-
-int dump_file(FILE* fin, FILE* fout)
-{
-    u8 buffer[MPS_MAX_BINARY_PACKET_SIZE];
-    size_t offset = 0;
-
-    for (;;)
-    {
-        size_t nread = fread(buffer, 1, sizeof(buffer), fin);
-
-        if (nread > 0)
-        {
-            println(offset, buffer, nread, "test", fout);
-            offset += nread;
-        }
-        
-        // - should handle better if we aren't reading the full packet size
-        if (nread < sizeof(buffer))
-        {
-            if (ferror(fin))
-            {
-                fprintf(stderr, "Error: read faild\n");
-                return 0;
-            }
-            break;
-        }
-
-    }
-
-    return 1;
+    pkt->data = base;
+    return true;
 }
 
 void dump_packet(const Packet* pkt, size_t* p_offset, FILE* fout)
@@ -193,11 +160,8 @@ void dump_packet(const Packet* pkt, size_t* p_offset, FILE* fout)
 
         // - Generate Annotations
         char annotation[256];
-        // - todo(chris)
         annotate_line(pkt->type, words, word_count, line_index, annotation, sizeof(annotation));
-
-        
-        println(offset, line_data, line_bytes, annotation, fout);
+        println_buffered(offset, line_data, line_bytes, annotation, fout);
 
         offset  += line_bytes;
         pos     += line_bytes;
@@ -207,44 +171,41 @@ void dump_packet(const Packet* pkt, size_t* p_offset, FILE* fout)
     *p_offset = offset;
 }
 
-void println(size_t offset, const u8* data, size_t size, const char* annotation, FILE* fout)
+static inline size_t append_clamped(int written, size_t n, size_t cap)
 {
-    printf("%08zx  ", offset);
+    if (n >= cap || written < 0) return cap;
+    size_t w = (size_t)written;
+    return (w > cap - n) ? cap : n + w;
+}
 
-    // Hex words column (raw bytes)
+void println_buffered(size_t offset, const u8* data, size_t size, const char* annotation, FILE* fout)
+{
+    char line[512];
+    size_t n = append_clamped(snprintf(line, sizeof(line), "%08zx  ", offset), 0, sizeof(line));
+
     for (size_t j = 0; j < BYTES_PER_LINE; ++j)
     {
-        if (j < size)
-            fprintf(fout, "%02X", data[j]);
-        else
-            fprintf(fout, "  ");
- 
-        if ( (j+1) % WORD_SIZE == 0)
-            fprintf(fout, "  ");
-        else
-            fprintf(fout, " ");
+        if (j < size) { memcpy(line + n, g_hex[data[j]], 2); n+=2; }
+        else          { line[n++] = ' '; line[n++] = ' '; }
+
+        line[n++] = ' ';
+        if ((j+1) % WORD_SIZE == 0) line[n++] = ' ';
     }
 
-    fprintf(fout, " | ");
-    // Ascii columen
-    for (size_t j = 0; j < BYTES_PER_LINE; ++j)
+    memcpy(line + n, " | ", 3); n += 3;
+
+    for (size_t j = 0; j < size; ++j)
     {
-        if (j < size)
-        {
-            unsigned char ch = data[j];
-            if (ch >= 0x20 && ch <= 0x7E)
-                fprintf(fout, "%c", ch);
-            else
-                fprintf(fout, "%c", '.');
-        }
+        unsigned char ch = data[j];
+        line[n++] = (ch >= 0x20 && ch <= 0x7E) ? (char)ch : '.';
     }
 
-    fprintf(fout, " | ");
-    // Annotation
-    if (annotation && annotation[0] != '\0')
-        fprintf(fout, "%s", annotation);
-    
-    fprintf(fout, "\n");
+    n = append_clamped(
+        snprintf(line + n, sizeof(line) - n, " | %s\n", annotation ? annotation : ""),
+        n, sizeof(line)
+    );
+
+    fwrite(line, 1, n, fout);
 
 }
 
@@ -400,8 +361,6 @@ void annotate_line_legacy(const u32* words, size_t word_count, size_t line_index
     }
 
     // temperatures / pressures
-
-
     if ( 3 <= line_index && line_index < 20 && word_count >= (line_index+1) * WORDS_PER_LINE)
     {
         char field[ANNOTATION_SLOT_WIDTH];
@@ -438,11 +397,10 @@ void annotate_line_legacy(const u32* words, size_t word_count, size_t line_index
             }
 
             append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
         }
         return;
     }
-    
+
     if (line_index == 20 && word_count >= (line_index+1) * WORDS_PER_LINE)
     {
         char field[ANNOTATION_SLOT_WIDTH];
@@ -476,12 +434,10 @@ void annotate_line_legacy(const u32* words, size_t word_count, size_t line_index
         snprintf(field, sizeof(field), "t(S): %010d;",  time);
         append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
         return;
-
-
     }
+
     if (line_index == 21 && word_count >= line_index * WORDS_PER_LINE + 3)
     {
-
         char field[ANNOTATION_SLOT_WIDTH];
         u32 time    = words[w_idx++];
         u32 xtrg_s  = words[w_idx++];
@@ -499,24 +455,6 @@ void annotate_line_legacy(const u32* words, size_t word_count, size_t line_index
         append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
         return;
     }
-    // {
-    //     f32 pressure      = bits_to_f32(word_count[w_idx++]);
-    //     u32 frame_time_s  = words[w_idx++];
-    //     u32 frame_time_ns = words[w_idx++];
-    //
-    //     char field[ANNOTATION_SLOT_WIDTH];
-    //
-    //     snprintf(field, sizeof(field), "P[64]:  %010u;", frame_time_s);
-    //     append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-    //
-    //     snprintf(field, sizeof(field), "SEC:  %010u;", frame_time_s);
-    //     append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-    //
-    //     snprintf(field, sizeof(field), "+NS:  %09u;", frame_time_ns);
-    //     append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-    //
-    // }
-
 }
 
 void annotate_line_eu(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size)
@@ -526,8 +464,6 @@ void annotate_line_eu(const u32* words, size_t word_count, size_t line_index, ch
 
     if (line_index == 0 && word_count >= (line_index+1)*WORDS_PER_LINE)
     {
-
-
         i32 packet_type   = (i32)words[w_idx++];
         u32 frame         = words[w_idx++];
         u32 frame_time_s  = words[w_idx++];
@@ -547,8 +483,6 @@ void annotate_line_eu(const u32* words, size_t word_count, size_t line_index, ch
 
         snprintf(field, sizeof(field), "+NS:    %09u;", frame_time_ns);
         append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
-
     }
 
     if (line_index > 0 && word_count >= (line_index + 1) * WORDS_PER_LINE)
@@ -567,10 +501,8 @@ void annotate_line_eu(const u32* words, size_t word_count, size_t line_index, ch
             else 
                 snprintf(field, sizeof(field), "P%02d:  %+.4e;",(int)w_idx - 4 - tcount, v);
             append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
         }
     }
-
 }
 
 void annotate_line_raw(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size)
@@ -580,8 +512,6 @@ void annotate_line_raw(const u32* words, size_t word_count, size_t line_index, c
 
     if (line_index == 0 && word_count >= (line_index+1)*WORDS_PER_LINE)
     {
-
-
         i32 packet_type   = (i32)words[w_idx++];
         u32 frame         = words[w_idx++];
         u32 frame_time_s  = words[w_idx++];
@@ -600,7 +530,6 @@ void annotate_line_raw(const u32* words, size_t word_count, size_t line_index, c
 
         snprintf(field, sizeof(field), "+NS:    %09u;", frame_time_ns);
         append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
     }
 
     if (line_index > 0 && word_count >= (line_index + 1) * WORDS_PER_LINE)
@@ -626,11 +555,8 @@ void annotate_line_raw(const u32* words, size_t word_count, size_t line_index, c
 
             }
             append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
         }
     }
-
-
 }
 
 void annotate_line_default(const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size)
@@ -643,25 +569,25 @@ void annotate_line_default(const u32* words, size_t word_count, size_t line_inde
         char field[ANNOTATION_SLOT_WIDTH];
         snprintf(field, sizeof(field), "%+.8e;", v);
         append_slot(out, out_size, field, ANNOTATION_SLOT_WIDTH);
-
     }
 }
 
 void annotate_line(const u8 pkt_type, const u32* words, size_t word_count, size_t line_index, char* out, size_t out_size)
 {
     out[0] = '\0';
-    
+
     switch (pkt_type)
     {
     case MPS_PKT_LEGACY_TYPE:
         annotate_line_legacy(words, word_count, line_index, out, out_size);
         break;
-        
+
     case MPS_PKT_16_TYPE:
     case MPS_PKT_32_TYPE:
     case MPS_PKT_64_TYPE:
         annotate_line_eu(words, word_count, line_index, out, out_size);
         break;
+
     case MPS_PKT_16_RAW_TYPE:
     case MPS_PKT_32_RAW_TYPE:
     case MPS_PKT_64_RAW_TYPE:
@@ -682,9 +608,7 @@ void annotate_line(const u8 pkt_type, const u32* words, size_t word_count, size_
         {
             annotate_line_default(words, word_count, line_index, out, out_size);
         }
-
         break;
-
     }
 }
 
